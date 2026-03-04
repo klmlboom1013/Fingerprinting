@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rust Wasm Device Fingerprinting</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .container {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        pre {
+            background-color: #272822;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        .btn {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 10px;
+            background-color: #3498db;
+            color: white;
+            text-align: center;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Device Fingerprinting (Rust + Wasm)</h1>
+    
+    <div class="container">
+        <p>Click the button below to generate a device fingerprint using the Rust Wasm module.</p>
+        <button class="btn" id="generate-btn">Generate Fingerprint</button>
+        
+        <h3>Result:</h3>
+        <pre id="output">Waiting for action...</pre>
+    </div>
+
+    <!-- Load the Wasm Module -->
+    <script type="module">
+        import init, { get_fingerprint } from './pkg/fingerprinting.js';
+
+        async function run() {
+            // Initialize the Wasm module
+            await init();
+            console.log("Wasm module initialized.");
+
+            document.getElementById('generate-btn').addEventListener('click', () => {
+                const outputEl = document.getElementById('output');
+                outputEl.textContent = "Generating...";
+                
+                try {
+                    // Call the Rust function
+                    const resultJsonString = get_fingerprint();
+                    
+                    // Parse and stringify with indentation for pretty printing
+                    const parsed = JSON.parse(resultJsonString);
+                    outputEl.textContent = JSON.stringify(parsed, null, 4);
+                } catch (e) {
+                    console.error("Error generating fingerprint:", e);
+                    outputEl.textContent = "Error: " + e.message;
+                }
+            });
+        }
+
+        run();
+    </script>
+</body>
+</html>
