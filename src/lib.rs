@@ -1,6 +1,11 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, CanvasRenderingContext2d, WebglDebugRendererInfo, WebGlRenderingContext, OfflineAudioContext};
+use aes::Aes256;
+use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+use cbc::Encryptor;
+use sha2::{Digest, Sha256};
+use base64::{engine::general_purpose, Engine as _};
 
 fn get_canvas_fingerprint(document: &web_sys::Document) -> String {
     if let Ok(canvas) = document.create_element("canvas") {
@@ -160,26 +165,20 @@ pub fn get_fingerprint() -> String {
     // Determines overall spoofing probability flag
     let spoofing_detected = is_canvas_spoofed;
 
-    // Return as JSON string
-    format!(
-        r#"{{
-    "deviceId": "{}",
-    "userAgent": "{}",
-    "language": "{}",
-    "hardwareConcurrency": {},
-    "screenResolution": "{}x{}",
-    "colorDepth": {},
-    "timezoneOffset": {},
-    "webglVendor": "{}",
-    "webglRenderer": "{}",
-    "audioContext": "{}",
-    "canvasFingerprintLength": {},
-    "fontsDetected": {},
-    "antiSpoofing": {{
-        "isSpoofingDetected": {},
-        "canvasStabilityScore": {}
-    }}
-}}"#,
+    let date = js_sys::Date::new_0();
+    let timestamp = format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}:{:03}",
+        date.get_full_year(),
+        date.get_month() + 1,
+        date.get_date(),
+        date.get_hours(),
+        date.get_minutes(),
+        date.get_seconds(),
+        date.get_milliseconds()
+    );
+
+    let plain_json = format!(
+        r#"{{"deviceId":"{}","userAgent":"{}","language":"{}","hardwareConcurrency":{},"screenResolution":"{}x{}","colorDepth":{},"timezoneOffset":{},"webglVendor":"{}","webglRenderer":"{}","audioContext":"{}","canvasFingerprintLength":{},"fontsDetected":{},"antiSpoofing":{{"isSpoofingDetected":{},"canvasStabilityScore":{}}}}}"#,
         device_id,
         user_agent.replace("\"", "\\\""),
         language.replace("\"", "\\\""),
@@ -195,5 +194,51 @@ pub fn get_fingerprint() -> String {
         fonts.len(),
         spoofing_detected,
         canvas_stability
+    );
+
+    // Encrypt plain_json (AES-CBC-PKCS5/7Padding)
+    let key = general_purpose::STANDARD.decode("7Y7n8WkXzR9PqM2vT5B4uE1aL8sK9jN3hG6fD0xV1Y4=").unwrap();
+    let iv = general_purpose::STANDARD.decode("Z3RYd2E5TThKcmZ0cW1ueA==").unwrap();
+
+    type Aes256CbcEnc = Encryptor<Aes256>;
+    let pt = plain_json.as_bytes();
+    let mut buf = vec![0u8; pt.len() + 32];
+    buf[..pt.len()].copy_from_slice(pt);
+
+    let ct_len = Aes256CbcEnc::new_from_slices(&key, &iv)
+        .unwrap()
+        .encrypt_padded_mut::<Pkcs7>(&mut buf, pt.len())
+        .unwrap()
+        .len();
+
+    let encrypted_base64 = general_purpose::STANDARD.encode(&buf[..ct_len]);
+
+    // Signature
+    let sig_string = format!(
+        "{}^{}^{}^{}^{}^{}^{}^{}^{}^{}^{}",
+        device_id,
+        language,
+        hardware_concurrency,
+        color_depth,
+        audio_fp,
+        canvas_fp.len(),
+        webgl_vendor,
+        webgl_renderer,
+        spoofing_detected,
+        canvas_stability,
+        timestamp
+    );
+
+    let mut hasher = Sha256::new();
+    hasher.update(sig_string.as_bytes());
+    let hash_result = hasher.finalize();
+    let signature = general_purpose::STANDARD.encode(hash_result);
+
+    // Return as JSON string
+    format!(
+        r#"{{"data":"{}","signature":"{}","timestamp":"{}"}}"#,
+        encrypted_base64,
+        signature,
+        timestamp
     )
 }
