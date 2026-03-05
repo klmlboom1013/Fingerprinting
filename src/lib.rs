@@ -162,7 +162,7 @@ pub fn get_fingerprint() -> String {
     let digest = md5::compute(combined_data.as_bytes());
     let device_id = format!("{:x}", digest);
 
-    // Determines overall spoofing probability flag
+    // determines overall spoofing probability flag
     let spoofing_detected = is_canvas_spoofed;
 
     let date = js_sys::Date::new_0();
@@ -176,42 +176,6 @@ pub fn get_fingerprint() -> String {
         date.get_seconds(),
         date.get_milliseconds()
     );
-
-    let plain_json = format!(
-        r#"{{"deviceId":"{}","userAgent":"{}","language":"{}","hardwareConcurrency":{},"screenResolution":"{}x{}","colorDepth":{},"timezoneOffset":{},"webglVendor":"{}","webglRenderer":"{}","audioContext":"{}","canvasFingerprintLength":{},"fontsDetected":{},"antiSpoofing":{{"isSpoofingDetected":{},"canvasStabilityScore":{}}}}}"#,
-        device_id,
-        user_agent.replace("\"", "\\\""),
-        language.replace("\"", "\\\""),
-        hardware_concurrency,
-        width,
-        height,
-        color_depth,
-        timezone_offset,
-        webgl_vendor.replace("\"", "\\\""),
-        webgl_renderer.replace("\"", "\\\""),
-        audio_fp,
-        canvas_fp.len(),
-        fonts.len(),
-        spoofing_detected,
-        canvas_stability
-    );
-
-    // Encrypt plain_json (AES-CBC-PKCS5/7Padding)
-    let key = general_purpose::STANDARD.decode("7Y7n8WkXzR9PqM2vT5B4uE1aL8sK9jN3hG6fD0xV1Y4=").unwrap();
-    let iv = general_purpose::STANDARD.decode("Z3RYd2E5TThKcmZ0cW1ueA==").unwrap();
-
-    type Aes256CbcEnc = Encryptor<Aes256>;
-    let pt = plain_json.as_bytes();
-    let mut buf = vec![0u8; pt.len() + 32];
-    buf[..pt.len()].copy_from_slice(pt);
-
-    let ct_len = Aes256CbcEnc::new_from_slices(&key, &iv)
-        .unwrap()
-        .encrypt_padded_mut::<Pkcs7>(&mut buf, pt.len())
-        .unwrap()
-        .len();
-
-    let encrypted_base64 = general_purpose::STANDARD.encode(&buf[..ct_len]);
 
     // Signature
     let sig_string = format!(
@@ -234,11 +198,49 @@ pub fn get_fingerprint() -> String {
     let hash_result = hasher.finalize();
     let signature = general_purpose::STANDARD.encode(hash_result);
 
-    // Return as JSON string
-    format!(
-        r#"{{"data":"{}","signature":"{}","timestamp":"{}"}}"#,
-        encrypted_base64,
+    let plain_json = format!(
+        r#"{{"deviceId":"{}","userAgent":"{}","language":"{}","hardwareConcurrency":{},"screenResolution":"{}x{}","colorDepth":{},"timezoneOffset":{},"webglVendor":"{}","webglRenderer":"{}","audioContext":"{}","canvasFingerprintLength":{},"fontsDetected":{},"antiSpoofing":{{"isSpoofingDetected":{},"canvasStabilityScore":{}}},"signature":"{}","timestamp":"{}"}}"#,
+        device_id,
+        user_agent.replace("\"", "\\\""),
+        language.replace("\"", "\\\""),
+        hardware_concurrency,
+        width,
+        height,
+        color_depth,
+        timezone_offset,
+        webgl_vendor.replace("\"", "\\\""),
+        webgl_renderer.replace("\"", "\\\""),
+        audio_fp,
+        canvas_fp.len(),
+        fonts.len(),
+        spoofing_detected,
+        canvas_stability,
         signature,
         timestamp
+    );
+
+    // Encrypt plain_json (AES-CBC-PKCS5/7Padding)
+    let key_str = env!("AES_KEY");
+    let iv_str = env!("AES_IV");
+    let key = general_purpose::STANDARD.decode(key_str).expect("Invalid AES_KEY in .env");
+    let iv = general_purpose::STANDARD.decode(iv_str).expect("Invalid AES_IV in .env");
+
+    type Aes256CbcEnc = Encryptor<Aes256>;
+    let pt = plain_json.as_bytes();
+    let mut buf = vec![0u8; pt.len() + 32];
+    buf[..pt.len()].copy_from_slice(pt);
+
+    let ct_len = Aes256CbcEnc::new_from_slices(&key, &iv)
+        .unwrap()
+        .encrypt_padded_mut::<Pkcs7>(&mut buf, pt.len())
+        .unwrap()
+        .len();
+
+    let encrypted_base64 = general_purpose::STANDARD.encode(&buf[..ct_len]);
+
+    // Return as JSON string
+    format!(
+        r#"{{"data":"{}"}}"#,
+        encrypted_base64
     )
 }
